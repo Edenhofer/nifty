@@ -76,7 +76,7 @@ class Operator(metaclass=NiftyMeta):
 
     def __matmul__(self, x):
         if not isinstance(x, Operator):
-            return NotImplemented
+            raise NotImplementedError()
         return _OpChain.make((self, x))
 
     def partial_insert(self, x):
