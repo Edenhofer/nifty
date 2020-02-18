@@ -1,3 +1,4 @@
+import timeit
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -21,6 +22,8 @@ from .. import utilities
 from ..domain_tuple import DomainTuple
 from ..field import Field
 from .endomorphic_operator import EndomorphicOperator
+
+timer = dict()
 
 
 class DiagonalOperator(EndomorphicOperator):
@@ -128,17 +131,32 @@ class DiagonalOperator(EndomorphicOperator):
 
     def apply(self, x, mode):
         self._check_input(x, mode)
+
+        start_time = timeit.default_timer()
         # shortcut for most common cases
         if mode == 1 or (not self._complex and mode == 2):
-            return Field(x.domain, x.val*self._ldiag)
+            res = Field(x.domain, x.val*self._ldiag)
+        else:
+            xdiag = self._ldiag
+            if self._complex and (mode & 10):  # adjoint or inverse adjoint
+                xdiag = xdiag.conj()
 
-        xdiag = self._ldiag
-        if self._complex and (mode & 10):  # adjoint or inverse adjoint
-            xdiag = xdiag.conj()
+            if mode & 3:
+                res = Field(x.domain, x.val*xdiag)
+            else:
+                res = Field(x.domain, x.val/xdiag)
+        end_time = timeit.default_timer()
 
-        if mode & 3:
-            return Field(x.domain, x.val*xdiag)
-        return Field(x.domain, x.val/xdiag)
+        global timer
+        try:
+            if x.shape in timer:
+                timer[x.shape] = (timer[x.shape][0] + 1, timer[x.shape][1] + (end_time - start_time))
+            else:
+                timer[x.shape] = (1, end_time - start_time)
+        except NameError:
+            timer = dict()
+            timer[x.shape] = (1, end_time - start_time)
+        return res
 
     def _flip_modes(self, trafo):
         if trafo == self.ADJOINT_BIT and not self._complex:  # shortcut
