@@ -19,19 +19,21 @@ import pickle
 from .. import utilities
 from ..multi_domain import MultiDomain
 from ..multi_field import MultiField
+from ..sugar import makeDomain
 
 
 class SampleList:
-    """Base class for storing lists of fields representing samples.
+    """Storage object for lists of fields representing samples.
 
-    This class suits as a base class for storing lists of in most cases
-    posterior samples. It is intended to be used to hold the minimization state
-    of an inference run and comes with a variety of convenience functions like
-    computing the mean or standard deviation of the output of a given operator
-    over the sample list.
+    It is intended to be used to hold the minimization state of an inference
+    run and comes with a variety of convenience functions like computing the
+    mean or standard deviation of the output of a given operator over the
+    sample list.
 
     Parameters
     ----------
+    samples : list of Field or list of MultiField
+        List of samples.
     comm : MPI communicator or None
         If not `None`, :class:`SampleList` can gather samples across multiple
         MPI tasks. If `None`, :class:`SampleList` is not a distributed object.
@@ -40,21 +42,22 @@ class SampleList:
 
     Note
     ----
-    A class inheriting from :class:`SampleList` needs to call the constructor of
-    `SampleList` and needs to implement :attr:`__len__()` and `__getitem__()`.
+    A class inheriting from :class:`SampleList` needs to implement
+    :attr:`__init__()`, :attr:`__len__()`, :attr:`__getitem__()`,
+    :attr:`save()` and :attr:`load()`.
     """
-    def __init__(self, comm, domain):
-        from ..sugar import makeDomain
+    def __init__(self, samples, comm):
+        self._s = samples
         self._comm = comm
-        self._domain = makeDomain(domain)
+        self._domain = makeDomain(samples[0].domain)
         utilities.check_MPI_equality(self._domain, comm)
 
     def __len__(self):
         """int: Number of local samples."""
-        raise NotImplementedError
+        return len(self._s)
 
-    def __getitem__(self, i):
-        raise NotImplementedError
+    def __getitem__(self, x):
+        return self._s[x]
 
     @property
     def comm(self):
@@ -184,7 +187,7 @@ class SampleList:
         If the instance of :class:`SampleList` is distributed, each MPI task
         writes its own file.
         """
-        raise NotImplementedError
+        self.save_helper(file_name_base, self._s)
 
     def save_helper(self, file_name_base, obj):
         # Helper functions necessary because MPI communicator cannot be pickled
@@ -223,7 +226,8 @@ class SampleList:
         The number of MPI tasks used for saving and loading the `SampleList`
         need to be the same.
         """
-        raise NotImplementedError
+        s = SampleList.load_helper(file_name_base, comm)
+        return MinimalSampleList(s, comm=comm)
 
 
 class ResidualSampleList(SampleList):
@@ -247,10 +251,12 @@ class ResidualSampleList(SampleList):
             If not `None`, samples can be gathered across multiple MPI tasks. If
             `None`, :class:`ResidualSampleList` is not a distributed object.
         """
-        super(ResidualSampleList, self).__init__(comm, mean.domain)
+        self._comm = comm
+        self._domain = makeDomain(mean.domain)
         self._m = mean
         self._r = tuple(residuals)
         self._n = tuple(neg)
+        utilities.check_MPI_equality(self._domain, comm)
 
         if len(self._r) != len(self._n):
             raise ValueError("Residuals and neg need to have the same length.")
@@ -319,39 +325,6 @@ class ResidualSampleList(SampleList):
     def load(self, file_name_base, comm=None):
         args = SampleList.load_helper(file_name_base, comm)
         return ResidualSampleList(*args, comm=comm)
-
-
-class MinimalSampleList(SampleList):
-    def __init__(self, samples, comm=None):
-        """Store samples as a plain list.
-
-        This is a minimalist implementation of :class:`SampleList`. It just
-        serves as a (potentially MPI-distributed) wrapper of a list of samples.
-
-        Parameters
-        ----------
-        samples : list of Field or list of MultiField
-            List of samples.
-        comm : MPI communicator or None
-            If not `None`, samples can be gathered across multiple MPI tasks. If
-            `None`, :class:`ResidualSampleList` is not a distributed object.
-        """
-        super(MinimalSampleList, self).__init__(comm, samples[0].domain)
-        self._s = samples
-
-    def __getitem__(self, x):
-        return self._s[x]
-
-    def __len__(self):
-        return len(self._s)
-
-    def save(self, file_name_base):
-        self.save_helper(file_name_base, self._s)
-
-    @staticmethod
-    def load(file_name_base, comm=None):
-        s = SampleList.load_helper(file_name_base, comm)
-        return MinimalSampleList(s, comm=comm)
 
 
 def _none_to_id(obj):
