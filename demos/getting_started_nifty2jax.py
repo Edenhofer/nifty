@@ -33,6 +33,15 @@ jax_config.update("jax_enable_x64", True)
 # %%
 filename = "getting_started_nifty2jax{}.png"
 
+def make_checkerboard_mask(position_space):
+    # Checkerboard mask for 2D mode
+    mask = np.ones(position_space.shape)
+    for i in range(4):
+        for j in range(4):
+            if (i + j) % 2 == 0:
+                mask[i*128//4:(i + 1)*128//4, j*128//4:(j + 1)*128//4] = 0
+    return mask
+
 position_space = ift.RGSpace([512, 512])
 cfm_kwargs = {
     'offset_mean': -2.,
@@ -46,10 +55,15 @@ cfm_kwargs = {
 
 correlated_field_nft = ift.SimpleCorrelatedField(position_space, **cfm_kwargs)
 pow_spec_nft = correlated_field_nft.power_spectrum
+points = ift.InverseGammaOperator(position_space,3,0.7).ducktape("points")
 
-signal_nft = correlated_field_nft.exp()
+mask = make_checkerboard_mask(position_space)
+mask = ift.Field.from_raw(position_space, mask)
+Mask = ift.MaskOperator(mask)
+
+signal_nft = correlated_field_nft.exp() + points
 response_nft = ift.GeometryRemover(signal_nft.target)
-signal_response_nft = response_nft(signal_nft)
+signal_response_nft = Mask @ signal_nft
 
 # %% [markdown]
 # ## From NIFTy to JAX + NIFTy
@@ -81,13 +95,13 @@ synth_pos = jft.random_like(sk, pt)
 data = synth_signal_response = signal_response(synth_pos)
 data += jnp.sqrt(noise_cov) * random.normal(sk, shape=data.shape)
 
-fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-im = axs.flat[0].imshow(synth_signal_response)
-fig.colorbar(im, ax=axs.flat[0])
-im = axs.flat[1].imshow(data)
-fig.colorbar(im, ax=axs.flat[1])
-fig.tight_layout()
-plt.show()
+# fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+# im = axs.flat[0].imshow(synth_signal_response)
+# fig.colorbar(im, ax=axs.flat[0])
+# im = axs.flat[1].imshow(data)
+# fig.colorbar(im, ax=axs.flat[1])
+# fig.tight_layout()
+# plt.show()
 
 # %%
 lh = jft.Gaussian(data, noise_cov_inv=lambda x: x / noise_cov) @ signal_response
