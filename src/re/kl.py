@@ -379,6 +379,7 @@ def MetricKL(
     n_samples: int,
     key,
     mirror_samples: bool = True,
+    sample_mapping: Optional[str, Callable]= 'vmap',
     linear_sampling_cg: Callable = conjugate_gradient.static_cg,
     linear_sampling_name: Optional[str] = None,
     linear_sampling_kwargs: Optional[dict] = None,
@@ -414,6 +415,19 @@ def MetricKL(
         Mirroring samples stabilizes the KL estimate as extreme
         sample variation is counterbalanced.
         Default is True.
+    sample_mapping : string, function
+        Can be either a string-key to a mapping function or a mapping function itself.
+        The function is used to map the drawing of samples. Possible string-keys are:
+
+        keys                -       functions
+        -------------------------------------
+        'vmap' or 'v'       -       jax.vmap
+        'pmap' or 'p'       -       jax.pmap
+        'lax.map' or 'lax'  -       jax.lax.map
+
+        In case sample_mapping is passed as a function, it should produce a mapped
+        function f_mapped of a general function f as:
+        `f_mapped = sample_mapping(f)
     linear_sampling_cg : callable
         Implementation of the conjugate gradient algorithm and used to
         apply the inverse of the metric.
@@ -441,7 +455,20 @@ def MetricKL(
         cg_kwargs=linear_sampling_kwargs
     )
     subkeys = random.split(key, n_samples)
-    samples_stack = lax.map(lambda k: draw(key=k), subkeys)
+    if isinstance(sample_mapping, str):
+        if sample_mapping == 'vmap' or sample_mapping == 'v':
+            sample_mapping = jax.vmap
+        elif sample_mapping == 'pmap' or sample_mapping == 'p':
+            sample_mapping = jax.pmap
+        elif sample_mapping == 'lax.map' or sample_mapping == 'lax':
+            sample_mapping = lambda f: lambda xs: lax.map(f, xs)
+        else:
+            raise ValueError('{} is not an accepted key to a sample mapping function. \
+                              If the desired mapping function is not yet implemented, consider passing it directly \
+                              instead of the key.'.format(sample_mapping))
+
+    samples_stack = sample_mapping(lambda k: draw(key=k))(subkeys)
+    #samples_stack = lax.map(lambda k: draw(key=k), subkeys)
 
     return SampleIter(
         mean=primals,
