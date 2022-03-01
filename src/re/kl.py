@@ -4,7 +4,8 @@
 from functools import partial
 from typing import Any, Callable, Optional, Sequence, Tuple, TypeVar, Union
 
-from jax import lax
+import jax
+from jax import lax, vmap
 from jax import random
 from jax.tree_util import Partial, register_pytree_node_class
 
@@ -395,6 +396,31 @@ def MetricKL(
     typically nonlinear structure of the true distribution these samples have
     to be updated eventually by re-instantiating the Metric Gaussian again. For
     the true probability distribution the standard parametrization is assumed.
+
+    Parameters
+    ----------
+
+    hamiltonian : :class:`nifty8.src.re.likelihood.StandardHamiltonian`
+        Hamiltonian of the approximated probability distribution.
+    primals : :class:`nifty8.re.field.Field`
+        Expansion point of the coordinate transformation.
+    n_samples : integer
+        Number of samples used to stochastically estimate the KL.
+    key : DeviceArray
+        A PRNG-key.
+    mirror_samples : boolean
+        Whether the mirrored version of the drawn samples are also used.
+        If true, the number of used samples doubles.
+        Mirroring samples stabilizes the KL estimate as extreme
+        sample variation is counterbalanced.
+        Default is True.
+    linear_sampling_cg : callable
+        Implementation of the conjugate gradient algorithm and used to
+        apply the inverse of the metric.
+    linear_sampling_name : string, optional
+        'name'-keyword-argument passed to `linear_sampling_cg`.
+    linear_sampling_kwargs : dict, optional
+        Additional keyword arguments passed on to `linear_sampling_cg`.
 
     See also
     --------
