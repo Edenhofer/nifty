@@ -379,7 +379,7 @@ def MetricKL(
     n_samples: int,
     key,
     mirror_samples: bool = True,
-    sample_mapping: Optional[str, Callable]= 'vmap',
+    sample_mapping: Union[str, Callable]= 'vmap',
     linear_sampling_cg: Callable = conjugate_gradient.static_cg,
     linear_sampling_name: Optional[str] = None,
     linear_sampling_kwargs: Optional[dict] = None,
