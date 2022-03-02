@@ -22,8 +22,8 @@ from .forest_util import (
     unite,
     unstack,
     vdot,
-    vmap_forest,
-    vmap_forest_mean,
+    map_forest,
+    map_forest_mean,
     zeros_like,
 )
 from .hmc import generate_hmc_acc_rej, generate_nuts_tree

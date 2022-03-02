@@ -291,14 +291,15 @@ def unstack(stack):
     return tree_map(partial(jnp.squeeze, axis=0), unstacked)
 
 
-def vmap_forest(
+def map_forest(
     f: Callable,
     in_axes: Union[int, Tuple] = 0,
     out_axes: Union[int, Tuple] = 0,
     tree_transpose_output: bool = True,
+    mapping: Union[str, Callable] = 'vmap',
     **kwargs
 ) -> Callable:
-    from jax import vmap
+    from jax import vmap, pmap
 
     if out_axes != 0:
         raise TypeError("`out_axis` not yet supported")
@@ -316,7 +317,23 @@ def vmap_forest(
         te = "mapping over a non integer axis is not yet supported"
         raise TypeError(te)
 
-    f_map = vmap(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
+    if isinstance(mapping, str):
+        if mapping == 'vmap' or mapping == 'v':
+            f_map = vmap(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
+        elif mapping == 'pmap' or mapping == 'p':
+            f_map = pmap(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
+        elif mapping == 'lax.map' or mapping == 'lax':
+            if np.all(0==np.array(in_axes)) and np.all(0==np.array(out_axes)):
+                f_map = lambda xs: lax.map(f, xs)
+            else:
+                raise ValueError('`in_axes` and `out_axes` specifications other than along the 0-axis are not \
+                                  possible in case of using `lax.map`.')
+        else:
+            raise ValueError('{} is not an accepted key to a mapping function. \
+                              If the desired mapping function is not yet implemented, consider passing it directly \
+                              instead of the key.'.format(mapping))
+    else:
+        f_map = mapping(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
 
     def apply(*xs):
         if not isinstance(xs[i], (list, tuple)):
@@ -334,9 +351,9 @@ def vmap_forest(
     return apply
 
 
-def vmap_forest_mean(method, *args, **kwargs) -> Callable:
-    method_map = vmap_forest(
-        method, *args, tree_transpose_output=False, **kwargs
+def map_forest_mean(method, mapping='vmap', *args, **kwargs) -> Callable:
+    method_map = map_forest(
+        method, *args, tree_transpose_output=False, mapping=mapping, **kwargs
     )
 
     def meaned_apply(*xs, **xs_kw):

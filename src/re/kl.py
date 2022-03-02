@@ -10,7 +10,7 @@ from jax import random
 from jax.tree_util import Partial, register_pytree_node_class
 
 from . import conjugate_gradient
-from .forest_util import assert_arithmetics, unstack, vmap_forest, vmap_forest_mean
+from .forest_util import assert_arithmetics, unstack, map_forest, map_forest_mean
 from .likelihood import Likelihood, StandardHamiltonian
 from .sugar import random_like
 
@@ -343,7 +343,7 @@ class SampleIter():
         # TODO: vmap is significantly slower than looping over the samples
         # for an extremely high dimensional problem.
         in_axes = kwargs.get("in_axes", (0, ))
-        return vmap_forest(call, in_axes=in_axes)(tuple(self), *args)
+        return map_forest(call, in_axes=in_axes)(tuple(self), *args)
 
     def mean(self, call: Callable, *args, **kwargs):
         """Applies an operator over all samples and averages the results
@@ -357,7 +357,7 @@ class SampleIter():
         # TODO: vmap is significantly slower than looping over the samples
         # for an extremely high dimensional problem.
         in_axes = kwargs.get("in_axes", (0, ))
-        return vmap_forest_mean(call, in_axes=in_axes)(tuple(self), *args)
+        return map_forest_mean(call, in_axes=in_axes)(tuple(self), *args)
 
     def tree_flatten(self):
         return ((self._mean, self._samples), (self._linearly_mirror_samples, ))
@@ -544,7 +544,7 @@ def GeoMetricKL(
     )
 
 
-def mean_value_and_grad(ham: Callable, *args, **kwargs):
+def mean_value_and_grad(ham: Callable, sample_mapping='vmap', *args, **kwargs):
     """Thin wrapper around `value_and_grad` and `vmap` to apply a cost function
     to a mean and a list of residual samples.
     """
@@ -563,7 +563,7 @@ def mean_value_and_grad(ham: Callable, *args, **kwargs):
         if not isinstance(primals_samples, SampleIter):
             primals_samples = SampleIter(samples=primals_samples)
         # TODO: Allow for different mapping methods
-        return vmap_forest_mean(ham_vg, in_axes=(0, ))(
+        return map_forest_mean(ham_vg, mapping=sample_mapping, in_axes=(0,))(
             tuple(primals_samples.at(primals))
         )
 
@@ -589,7 +589,7 @@ def mean_hessp(ham: Callable, *args, **kwargs):
 
         if not isinstance(primals_samples, SampleIter):
             primals_samples = SampleIter(samples=primals_samples)
-        return vmap_forest_mean(
+        return map_forest_mean(
             partial(mean_hp, primals_samples=None, **primals_kw),
             in_axes=(0, None)
         )(tuple(primals_samples.at(primals)), tangents)
@@ -612,7 +612,7 @@ def mean_metric(metric: Callable):
 
         if not isinstance(primals_samples, SampleIter):
             primals_samples = SampleIter(samples=primals_samples)
-        return vmap_forest_mean(
+        return map_forest_mean(
             partial(metric, **primals_kw), in_axes=(0, None)
         )(tuple(primals_samples.at(primals)), tangents)
 
