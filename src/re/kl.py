@@ -379,7 +379,7 @@ def MetricKL(
     n_samples: int,
     key,
     mirror_samples: bool = True,
-    sample_mapping: Union[str, Callable]= 'vmap',
+    sample_mapping: Union[str, Callable]= 'lax',
     linear_sampling_cg: Callable = conjugate_gradient.static_cg,
     linear_sampling_name: Optional[str] = None,
     linear_sampling_kwargs: Optional[dict] = None,
@@ -421,7 +421,6 @@ def MetricKL(
 
         keys                -       functions
         -------------------------------------
-        'vmap' or 'v'       -       jax.vmap
         'pmap' or 'p'       -       jax.pmap
         'lax.map' or 'lax'  -       jax.lax.map
 
@@ -456,9 +455,7 @@ def MetricKL(
     )
     subkeys = random.split(key, n_samples)
     if isinstance(sample_mapping, str):
-        if sample_mapping == 'vmap' or sample_mapping == 'v':
-            sample_mapping = jax.vmap
-        elif sample_mapping == 'pmap' or sample_mapping == 'p':
+        if sample_mapping == 'pmap' or sample_mapping == 'p':
             sample_mapping = jax.pmap
         elif sample_mapping == 'lax.map' or sample_mapping == 'lax':
             sample_mapping = lambda f: lambda xs: lax.map(f, xs)
