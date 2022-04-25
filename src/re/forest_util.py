@@ -1,9 +1,9 @@
 # Copyright(C) 2013-2021 Max-Planck-Society
 # SPDX-License-Identifier: GPL-2.0+ OR BSD-2-Clause
 
-from functools import partial
+from functools import partial, reduce
 import operator
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, TypeVar, Union
 
 from jax import lax
 from jax import numpy as jnp
@@ -15,7 +15,6 @@ from jax.tree_util import (
     tree_structure,
     tree_transpose,
 )
-import numpy as np
 
 from .field import Field
 from .sugar import is1d
@@ -96,7 +95,7 @@ class ShapeWithDtype():
     This class may not be transparent to JAX as it shall not be flattened
     itself. If used in a tree-like structure. It should only be used as leave.
     """
-    def __init__(self, shape: Union[tuple, list, int], dtype=None):
+    def __init__(self, shape: Union[Tuple[int], List[int], int], dtype=None):
         """Instantiates a storage unit for shape and dtype.
 
         Parameters
@@ -109,6 +108,8 @@ class ShapeWithDtype():
         """
         if isinstance(shape, int):
             shape = (shape, )
+        if isinstance(shape, list):
+            shape = tuple(shape)
         if not is1d(shape):
             ve = f"invalid shape; got {shape!r}"
             raise TypeError(ve)
@@ -143,7 +144,7 @@ class ShapeWithDtype():
         return cls(jnp.shape(element), get_dtype(element))
 
     @property
-    def shape(self):
+    def shape(self) -> Tuple[int]:
         """Retrieves the shape."""
         return self._shape
 
@@ -153,11 +154,27 @@ class ShapeWithDtype():
         return self._dtype
 
     @property
-    def size(self):
+    def size(self) -> int:
         """Total number of elements."""
         if self._size is None:
-            self._size = np.prod(self.shape, dtype=int)
+            self._size = reduce(operator.mul, self.shape, 1)
         return self._size
+
+    @property
+    def ndim(self) -> int:
+        return len(self.shape)
+
+    def __len__(self) -> int:
+        if self.ndim > 0:
+            return self.shape[0]
+        else:  # mimic numpy
+            raise TypeError("len() of unsized object")
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, ShapeWithDtype):
+            return False
+        else:
+            return (self.shape, self.dtype) == (other.shape, other.dtype)
 
     def __repr__(self):
         nm = self.__class__.__name__
@@ -187,11 +204,22 @@ def _size(x):
     return x.size if hasattr(x, "size") else jnp.size(x)
 
 
-def size(tree, axis: Optional[int] = None) -> Union[int, jnp.ndarray]:
+def size(tree, axis: Optional[int] = None) -> int:
     if axis is not None:
         raise TypeError("axis of an arbitrary tree is ill defined")
     sizes = tree_map(_size, tree)
     return tree_reduce(operator.add, sizes)
+
+
+def _shape(x):
+    return x.shape if hasattr(x, "shape") else jnp.shape(x)
+
+
+T = TypeVar("T")
+
+
+def shape(tree: T) -> T:
+    return tree_map(_shape, tree)
 
 
 def _zeros_like(x, dtype, shape):

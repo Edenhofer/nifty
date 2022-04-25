@@ -18,6 +18,8 @@ from .forest_util import (
     dot,
     has_arithmetics,
     norm,
+    shape,
+    size,
     stack,
     unite,
     unstack,
@@ -57,3 +59,6 @@ from .sugar import (
     random_like,
     sum_of_squares,
 )
+from . import refine
+from . import refine_util
+from . import refine_chart

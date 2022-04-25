@@ -1,21 +1,8 @@
 from .version import __version__
 
 from . import random
-try:
-    from . import re
-    from . import nifty2jax
-except ImportError:
-    pass
 
-from .domains.domain import Domain
-from .domains.structured_domain import StructuredDomain
-from .domains.unstructured_domain import UnstructuredDomain
-from .domains.rg_space import RGSpace
-from .domains.lm_space import LMSpace
-from .domains.gl_space import GLSpace
-from .domains.hp_space import HPSpace
-from .domains.power_space import PowerSpace
-from .domains.dof_space import DOFSpace
+from .domains import *
 
 from .domain_tuple import DomainTuple
 from .multi_domain import MultiDomain
@@ -90,7 +77,8 @@ from .sugar import *
 from .plot import Plot
 
 from .library.special_distributions import InverseGammaOperator, \
-    UniformOperator, LaplaceOperator, LogInverseGammaOperator
+    UniformOperator, LaplaceOperator, LogInverseGammaOperator, \
+    GammaOperator
 from .library.los_response import LOSResponse
 from .library.dynamic_operator import (dynamic_operator,
                                        dynamic_lightcone_operator)
@@ -117,6 +105,12 @@ from .operator_spectrum import operator_spectrum
 from .operator_tree_optimiser import optimise_operator
 
 from .ducc_dispatch import set_nthreads, nthreads
+
+try:
+    from . import re
+    from . import nifty2jax
+except ImportError:
+    pass
 
 # We deliberately don't set __all__ here, because we don't want people to do a
 # "from nifty8 import *"; that would swamp the global namespace.

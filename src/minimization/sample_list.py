@@ -158,8 +158,11 @@ class SampleListBase:
             f = h5py.File(file_name, "w")
             if isinstance(op, Operator):
                 f.attrs["nifty operator string representation"] = str(op)
-                f.attrs["nifty operator domain"] = str(op.domain)
-                f.attrs["nifty operator target"] = str(op.target)
+                f.attrs["nifty operator domain"] = repr(op.domain)
+                f.attrs["nifty operator target"] = repr(op.target)
+                f.attrs["nifty domain"] = repr(op.target)
+            else:
+                f.attrs["nifty domain"] = repr(self.domain)
         else:
             f = utilities.Nop()
 
@@ -357,6 +360,9 @@ class SampleListBase:
             A tuple with two items: the mean and the variance.
         """
         from ..probing import StatCalculator
+        if self.n_samples == 1:
+            res = self.average(op)
+            return res, 0*res
         sc = StatCalculator()
         for ss in self.iterator(op):
             sc.add(ss)

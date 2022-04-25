@@ -12,6 +12,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Copyright(C) 2021 Max-Planck-Society
+# Copyright(C) 2022 Max-Planck-Society, Philipp Arras
 # Author: Philipp Arras
 #
 # NIFTy is being developed at the Max-Planck-Institut fuer Astrophysik.
@@ -123,7 +124,10 @@ def optimize_kl(likelihood_energy,
         Default is to draw samples for the complete domain.
     plottable_operators : dict
         Dictionary of operators that are plotted during the minimization. The
-        key contains a string that serves as identifier.
+        key contains a string that serves as identifier. The value of the
+        dictionary can either be an operator or a tuple of an operator and a
+        dictionary that contains kwargs for the plotting that are passed into
+        the NIFTy plotting routine.
     output_directory : str or None
         Directory in which all output files are saved. If None, no output is
         stored.  Default: "nifty_optimize_kl_output".
@@ -236,15 +240,15 @@ def optimize_kl(likelihood_energy,
                 initial_position = sl.local_item(0)
             _load_random_state(output_directory, last_finished_index, save_strategy)
 
+            if initial_index == total_iterations:
+                if isfile(fname + ".mean.pickle"):
+                    sl = ResidualSampleList.load(fname)
+                return (sl, initial_position) if return_final_position else sl
+
     # Sanity check of input
     if initial_index >= total_iterations:
-        if resume:
-            if isfile(fname + ".mean.pickle"):
-                sl = ResidualSampleList.load(fname)
-            return (sl, mean) if return_final_position else sl
-        else:
-            raise ValueError("Initial index is bigger than total iterations: "
-                             f"{initial_index} >= {total_iterations}")
+        raise ValueError("Initial index is bigger than total iterations: "
+                         f"{initial_index} >= {total_iterations}")
 
     for iglobal in range(initial_index, total_iterations):
         for (obj, cls) in [(likelihood_energy, Operator), (kl_minimizer, DescentMinimizer),
@@ -277,24 +281,31 @@ def optimize_kl(likelihood_energy,
 
     for k1, op in plottable_operators.items():
         if mf_dom:
+            if isinstance(op, tuple) and len(op) == 2:
+                if not isinstance(op[1], dict):
+                    raise TypeError
+                op = op[0]
             for k2, vv in op.domain.items():
                 if k2 in dom.keys() and dom[k2] != vv:
                     raise ValueError(f"The domain of plottable operator '{k1}' "
                                       "does not fit to the minimization domain.")
         else:
             myassert(op.domain is dom)
-    # /Sanity check of input
-
     if not likelihood_energy(initial_index).target is DomainTuple.scalar_domain():
         raise TypeError
+    # /Sanity check of input
+
     if plot_latent:
         plottable_operators = plottable_operators.copy()
         plottable_operators["latent"] = ScalingOperator(dom, 1.)
+
+    # Initial position
     mean = initial_position
     check_MPI_synced_random_state(comm(initial_index))
     if mean is None:
         mean = 0.1 * from_random(dom)
     myassert(dom is mean.domain)
+    # /Initial position
 
     if ground_truth_position is not None:
         if ground_truth_position.domain is not dom:
@@ -362,27 +373,17 @@ def optimize_kl(likelihood_energy,
             if _MPI_master(comm(iglobal)):
                 with open(join(output_directory, "last_finished_iteration"), "w") as f:
                     f.write(str(iglobal))
-            _barrier(comm(iglobal))
-
-        if _number_of_arguments(inspect_callback) == 1:
-            inp = (sl,)
-        elif _number_of_arguments(inspect_callback) == 2:
-            inp = (sl, iglobal)
-        elif _number_of_arguments(inspect_callback) == 3:
-            inp = (sl, iglobal, mean)
-        new_mean = inspect_callback(*inp)
-        if new_mean is not None:
-            mean = new_mean
-        if mean.domain is not dom:
-            raise RuntimeError
-        if sl.domain is not dom:
-            raise RuntimeError
         _barrier(comm(iglobal))
 
-        terminate = terminate_callback(iglobal)
-        check_MPI_equality(terminate, comm(iglobal))
-        if terminate:
+        _minisanity(likelihood_energy, iglobal, sl, output_directory, comm)
+        _barrier(comm(iglobal))
+
+        _handle_inspect_callback(inspect_callback, sl, iglobal, mean, dom, comm)
+        _barrier(comm(iglobal))
+
+        if _handle_terminate_callback(terminate_callback, iglobal, comm):
             break
+        _barrier(comm(iglobal))
 
     return (sl, mean) if return_final_position else sl
 
@@ -428,14 +429,19 @@ def _plot_operators(output_directory, index, plottable_operators, sample_list,
         raise TypeError
 
     for name, op in plottable_operators.items():
+        plotting_kwargs = {}
+        if isinstance(op, tuple) and len(op) == 2:
+            op, plotting_kwargs = op
+        if not isinstance(plotting_kwargs, dict):
+            raise TypeError
         if not _is_subdomain(op.domain, sample_list.domain):
             continue
         gt = _op_force_or_none(op, ground_truth)
         fname = _file_name(output_directory, name, index, "samples_")
-        _plot_samples(fname, sample_list.iterator(op), gt, comm)
+        _plot_samples(fname, sample_list.iterator(op), gt, comm, plotting_kwargs)
         if sample_list.n_samples > 1:
             fname = _file_name(output_directory, name, index, "stats_")
-            _plot_stats(fname, *sample_list.sample_stat(op), gt, comm)
+            _plot_stats(fname, *sample_list.sample_stat(op), gt, comm, plotting_kwargs)
 
         op_direc = join(output_directory, name)
         if sample_list.n_samples > 1:
@@ -463,7 +469,7 @@ def _plot_operators(output_directory, index, plottable_operators, sample_list,
                 pass
 
 
-def _plot_samples(file_name, samples, ground_truth, comm):
+def _plot_samples(file_name, samples, ground_truth, comm, plotting_kwargs):
     samples = list(samples)
 
     if _MPI_master(comm):
@@ -481,12 +487,13 @@ def _plot_samples(file_name, samples, ground_truth, comm):
 
             if plottable2D(samples[0][kk]):
                 if ground_truth is not None:
-                    p.add(ground_truth[kk], title=_append_key("Ground truth", kk))
+                    p.add(ground_truth[kk], title=_append_key("Ground truth", kk),
+                          **plotting_kwargs)
                     p.add(None)
                 for ii, ss in enumerate(single_samples):
                     if (ground_truth is None and ii == 16) or (ground_truth is not None and ii == 14):
                         break
-                    p.add(ss, title=_append_key(f"Samples {ii}", kk))
+                    p.add(ss, title=_append_key(f"Sample {ii}", kk), **plotting_kwargs)
             else:
                 n = len(samples)
                 alpha = n*[0.5]
@@ -497,7 +504,8 @@ def _plot_samples(file_name, samples, ground_truth, comm):
                     alpha = [1.] + alpha
                     color = ["green"] + color
                     label = ["Ground truth", "Samples"] + (n-1)*[None]
-                p.add(single_samples, color=color, alpha=alpha, label=label, title=_append_key("Samples", kk))
+                p.add(single_samples, color=color, alpha=alpha, label=label,
+                      title=_append_key("Samples", kk), **plotting_kwargs)
         p.output(name=file_name)
 
 
@@ -507,14 +515,62 @@ def _append_key(s, key):
     return f"{s} ({key})"
 
 
-def _plot_stats(file_name, mean, stddev, ground_truth, comm):
+def _plot_stats(file_name, mean, var, ground_truth, comm, plotting_kwargs):
+    try:
+        from matplotlib.colors import LogNorm
+    except ImportError:
+        return
+
     p = Plot()
     if ground_truth is not None:
-        p.add(ground_truth, title="Ground truth")
-    p.add(mean, title="Mean")
-    p.add(stddev, vmin=0, title="Standard deviation")
+        p.add(ground_truth, title="Ground truth", **plotting_kwargs)
+    p.add(mean, title="Mean", **plotting_kwargs)
+    p.add(var.sqrt(), title="Standard deviation", norm=LogNorm())
     if _MPI_master(comm):
         p.output(name=file_name, ny=2 if ground_truth is None else 3)
+
+
+def _minisanity(likelihood_energy, iglobal, sl, output_directory, comm):
+    from datetime import datetime
+    from ..logger import logger
+    from ..extra import minisanity
+
+    s = "\n".join(
+        ["",
+         f"Finished index: {iglobal}",
+         f"Current datetime: {datetime.now()}",
+         minisanity(likelihood_energy(iglobal), sl, terminal_colors=False),
+         ""]
+        )
+
+    if _MPI_master(comm(iglobal)):
+        logger.info(s)
+        if output_directory is not None:
+            with open(join(output_directory, "minisanity.txt"), "a") as f:
+                f.write(s)
+
+
+def _handle_inspect_callback(inspect_callback, sl, iglobal, mean, dom, comm):
+    if _number_of_arguments(inspect_callback) == 1:
+        inp = (sl,)
+    elif _number_of_arguments(inspect_callback) == 2:
+        inp = (sl, iglobal)
+    elif _number_of_arguments(inspect_callback) == 3:
+        inp = (sl, iglobal, mean)
+    new_mean = inspect_callback(*inp)
+    if new_mean is not None:
+        mean = new_mean
+    if mean.domain is not dom:
+        raise RuntimeError
+    if sl.domain is not dom:
+        raise RuntimeError
+    return mean
+
+
+def _handle_terminate_callback(terminate_callback, iglobal, comm):
+    terminate = terminate_callback(iglobal)
+    check_MPI_equality(terminate, comm(iglobal))
+    return terminate
 
 
 def _MPI_master(comm):
