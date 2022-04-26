@@ -5,12 +5,12 @@ from functools import partial
 from typing import Any, Callable, Optional, Sequence, Tuple, TypeVar, Union
 
 import jax
-from jax import lax, vmap
+from jax import lax
 from jax import random
 from jax.tree_util import Partial, register_pytree_node_class
 
 from . import conjugate_gradient
-from .forest_util import assert_arithmetics, unstack, map_forest, map_forest_mean
+from .forest_util import assert_arithmetics, map_forest, map_forest_mean, unstack
 from .likelihood import Likelihood, StandardHamiltonian
 from .sugar import random_like
 
@@ -379,7 +379,7 @@ def MetricKL(
     n_samples: int,
     key,
     mirror_samples: bool = True,
-    sample_mapping: Union[str, Callable]= 'lax',
+    sample_mapping: Union[str, Callable] = 'lax',
     linear_sampling_cg: Callable = conjugate_gradient.static_cg,
     linear_sampling_name: Optional[str] = None,
     linear_sampling_kwargs: Optional[dict] = None,
@@ -416,17 +416,18 @@ def MetricKL(
         sample variation is counterbalanced.
         Default is True.
     sample_mapping : string, callable
-        Can be either a string-key to a mapping function or a mapping function itself.
-        The function is used to map the drawing of samples. Possible string-keys are:
+        Can be either a string-key to a mapping function or a mapping function
+        itself. The function is used to map the drawing of samples. Possible
+        string-keys are:
 
         keys                -       functions
         -------------------------------------
         'pmap' or 'p'       -       jax.pmap
         'lax.map' or 'lax'  -       jax.lax.map
 
-        In case sample_mapping is passed as a function, it should produce a mapped
-        function f_mapped of a general function f as:
-        `f_mapped = sample_mapping(f)`
+        In case sample_mapping is passed as a function, it should produce a
+        mapped function f_mapped of a general function f as: `f_mapped =
+        sample_mapping(f)`
     linear_sampling_cg : callable
         Implementation of the conjugate gradient algorithm and used to
         apply the inverse of the metric.
@@ -460,13 +461,18 @@ def MetricKL(
         elif sample_mapping == 'lax.map' or sample_mapping == 'lax':
             sample_mapping = partial(partial, lax.map)
         else:
-            raise ValueError(f'{sample_mapping} is not an accepted key to a sample mapping function. '
-                             f'If the desired mapping function is not yet implemented, consider passing it directly '
-                             f'instead of the key.')
+            ve = (
+                f"{sample_mapping} is not an accepted key to a mapping function"
+                "; please pass function directly"
+            )
+            raise ValueError(ve)
 
     elif not callable(sample_mapping):
-        raise TypeError(f'The parameter sample_mapping has to be either a string or a callable.'
-                        f'It is neither and has type {str(type(sample_mapping))}.')
+        te = (
+            f"invalid `sample_mapping` of type {type(sample_mapping)!r}"
+            "; expected string or callable"
+        )
+        raise TypeError(te)
 
     samples_stack = sample_mapping(lambda k: draw(key=k))(subkeys)
 
@@ -545,8 +551,9 @@ def GeoMetricKL(
 
 
 def mean_value_and_grad(ham: Callable, sample_mapping='vmap', *args, **kwargs):
-    """Thin wrapper around `value_and_grad` and the provided sample mapping function, e.g. `vmap` to apply a
-    cost function to a mean and a list of residual samples.
+    """Thin wrapper around `value_and_grad` and the provided sample mapping
+    function, e.g. `vmap` to apply a cost function to a mean and a list of
+    residual samples.
 
     Parameters
     ----------
@@ -555,8 +562,9 @@ def mean_value_and_grad(ham: Callable, sample_mapping='vmap', *args, **kwargs):
         Hamiltonian of the approximated probability distribution,
         of which the mean value and the mean gradient are to be computed.
     sample_mapping : string, callable
-        Can be either a string-key to a mapping function or a mapping function itself.
-        The function is used to map the drawing of samples. Possible string-keys are:
+        Can be either a string-key to a mapping function or a mapping function
+        itself. The function is used to map the drawing of samples. Possible
+        string-keys are:
 
         keys                -       functions
         -------------------------------------
@@ -564,9 +572,9 @@ def mean_value_and_grad(ham: Callable, sample_mapping='vmap', *args, **kwargs):
         'pmap' or 'p'       -       jax.pmap
         'lax.map' or 'lax'  -       jax.lax.map
 
-        In case sample_mapping is passed as a function, it should produce a mapped
-        function f_mapped of a general function f as:
-        `f_mapped = sample_mapping(f)`
+        In case sample_mapping is passed as a function, it should produce a
+        mapped function f_mapped of a general function f as: `f_mapped =
+        sample_mapping(f)`
     """
     from jax import value_and_grad
     vg = value_and_grad(ham, *args, **kwargs)
@@ -582,8 +590,7 @@ def mean_value_and_grad(ham: Callable, sample_mapping='vmap', *args, **kwargs):
 
         if not isinstance(primals_samples, SampleIter):
             primals_samples = SampleIter(samples=primals_samples)
-        # TODO: Allow for different mapping methods
-        return map_forest_mean(ham_vg, mapping=sample_mapping, in_axes=(0,))(
+        return map_forest_mean(ham_vg, mapping=sample_mapping, in_axes=(0, ))(
             tuple(primals_samples.at(primals))
         )
 

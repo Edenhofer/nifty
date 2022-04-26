@@ -352,20 +352,29 @@ def map_forest(
         elif mapping == 'pmap' or mapping == 'p':
             f_map = pmap(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
         elif mapping == 'lax.map' or mapping == 'lax':
-            if np.all(0==np.array(in_axes)) and np.all(0==np.array(out_axes)):
+            if all(el == 0
+                   for el in in_axes) and np.all(0 == np.array(out_axes)):
                 f_map = partial(lax.map, f)
             else:
-                raise ValueError(f'`in_axes` and `out_axes` specifications other than along the 0-axis are not '
-                                 f'possible in case of using `lax.map`.')
+                ve = (
+                    "mapping `in_axes` and `out_axes` along another axis than"
+                    " the 0-axis is not possible for `lax.map`"
+                )
+                raise ValueError(ve)
         else:
-            raise ValueError(f'{mapping} is not an accepted key to a mapping function. '
-                             f'If the desired mapping function is not yet implemented, consider passing it directly '
-                             f'instead of the key.')
+            ve = (
+                f"{mapping} is not an accepted key to a mapping function"
+                "; please pass function directly"
+            )
+            raise ValueError(ve)
     elif callable(mapping):
         f_map = mapping(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
     else:
-        raise TypeError(f'The parameter mapping has to be either a string or a callable.'
-                        f'It is neither and has type {str(type(mapping))}.')
+        te = (
+            f"invalid `mapping` of type {type(mapping)!r}"
+            "; expected string or callable"
+        )
+        raise TypeError(te)
 
     def apply(*xs):
         if not isinstance(xs[i], (list, tuple)):
