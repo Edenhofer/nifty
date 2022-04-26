@@ -465,7 +465,6 @@ def MetricKL(
                              f'instead of the key.')
 
     samples_stack = sample_mapping(lambda k: draw(key=k))(subkeys)
-    #samples_stack = lax.map(lambda k: draw(key=k), subkeys)
 
     return SampleIter(
         mean=primals,
