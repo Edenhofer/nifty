@@ -15,6 +15,7 @@ from jax.tree_util import (
     tree_structure,
     tree_transpose,
 )
+import numpy as np
 
 from .field import Field
 from .sugar import is1d
@@ -351,7 +352,7 @@ def map_forest(
         elif mapping == 'pmap' or mapping == 'p':
             f_map = pmap(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
         elif mapping == 'lax.map' or mapping == 'lax':
-            if jnp.all(0==jnp.array(in_axes)) and jnp.all(0==jnp.array(out_axes)):
+            if np.all(0==np.array(in_axes)) and np.all(0==np.array(out_axes)):
                 f_map = lambda xs: lax.map(f, xs)
             else:
                 raise ValueError(f'`in_axes` and `out_axes` specifications other than along the 0-axis are not '
