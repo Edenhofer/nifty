@@ -545,8 +545,28 @@ def GeoMetricKL(
 
 
 def mean_value_and_grad(ham: Callable, sample_mapping='vmap', *args, **kwargs):
-    """Thin wrapper around `value_and_grad` and `vmap` to apply a cost function
-    to a mean and a list of residual samples.
+    """Thin wrapper around `value_and_grad` and the provided sample mapping function, e.g. `vmap` to apply a
+    cost function to a mean and a list of residual samples.
+
+    Parameters
+    ----------
+
+    ham : :class:`nifty8.src.re.likelihood.StandardHamiltonian`
+        Hamiltonian of the approximated probability distribution,
+        of which the mean value and the mean gradient are to be computed.
+    sample_mapping : string, callable
+        Can be either a string-key to a mapping function or a mapping function itself.
+        The function is used to map the drawing of samples. Possible string-keys are:
+
+        keys                -       functions
+        -------------------------------------
+        'vmap' or 'v'       -       jax.vmap
+        'pmap' or 'p'       -       jax.pmap
+        'lax.map' or 'lax'  -       jax.lax.map
+
+        In case sample_mapping is passed as a function, it should produce a mapped
+        function f_mapped of a general function f as:
+        `f_mapped = sample_mapping(f)`
     """
     from jax import value_and_grad
     vg = value_and_grad(ham, *args, **kwargs)
