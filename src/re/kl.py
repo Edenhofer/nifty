@@ -458,7 +458,7 @@ def MetricKL(
         if sample_mapping == 'pmap' or sample_mapping == 'p':
             sample_mapping = jax.pmap
         elif sample_mapping == 'lax.map' or sample_mapping == 'lax':
-            sample_mapping = lambda f: partial(lax.map, f)
+            sample_mapping = partial(partial, lax.map)
         else:
             raise ValueError(f'{sample_mapping} is not an accepted key to a sample mapping function. '
                              f'If the desired mapping function is not yet implemented, consider passing it directly '
