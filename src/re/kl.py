@@ -415,7 +415,7 @@ def MetricKL(
         Mirroring samples stabilizes the KL estimate as extreme
         sample variation is counterbalanced.
         Default is True.
-    sample_mapping : string, function
+    sample_mapping : string, callable
         Can be either a string-key to a mapping function or a mapping function itself.
         The function is used to map the drawing of samples. Possible string-keys are:
 
