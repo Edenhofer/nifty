@@ -426,7 +426,7 @@ def MetricKL(
 
         In case sample_mapping is passed as a function, it should produce a mapped
         function f_mapped of a general function f as:
-        `f_mapped = sample_mapping(f)
+        `f_mapped = sample_mapping(f)`
     linear_sampling_cg : callable
         Implementation of the conjugate gradient algorithm and used to
         apply the inverse of the metric.
@@ -463,6 +463,10 @@ def MetricKL(
             raise ValueError(f'{sample_mapping} is not an accepted key to a sample mapping function. '
                              f'If the desired mapping function is not yet implemented, consider passing it directly '
                              f'instead of the key.')
+
+    elif not callable(sample_mapping):
+        raise TypeError(f'The parameter sample_mapping has to be either a string or a callable.'
+                        f'It is neither and has type {str(type(sample_mapping))}.')
 
     samples_stack = sample_mapping(lambda k: draw(key=k))(subkeys)
 

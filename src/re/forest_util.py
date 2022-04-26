@@ -360,8 +360,11 @@ def map_forest(
             raise ValueError(f'{mapping} is not an accepted key to a mapping function. '
                              f'If the desired mapping function is not yet implemented, consider passing it directly '
                              f'instead of the key.')
-    else:
+    elif callable(mapping):
         f_map = mapping(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
+    else:
+        raise TypeError(f'The parameter mapping has to be either a string or a callable.'
+                        f'It is neither and has type {str(type(mapping))}.')
 
     def apply(*xs):
         if not isinstance(xs[i], (list, tuple)):
