@@ -354,12 +354,12 @@ def map_forest(
             if jnp.all(0==jnp.array(in_axes)) and jnp.all(0==jnp.array(out_axes)):
                 f_map = lambda xs: lax.map(f, xs)
             else:
-                raise ValueError('`in_axes` and `out_axes` specifications other than along the 0-axis are not \
-                                  possible in case of using `lax.map`.')
+                raise ValueError(f'`in_axes` and `out_axes` specifications other than along the 0-axis are not '
+                                 f'possible in case of using `lax.map`.')
         else:
-            raise ValueError('{} is not an accepted key to a mapping function. \
-                              If the desired mapping function is not yet implemented, consider passing it directly \
-                              instead of the key.'.format(mapping))
+            raise ValueError(f'{mapping} is not an accepted key to a mapping function. '
+                             f'If the desired mapping function is not yet implemented, consider passing it directly '
+                             f'instead of the key.')
     else:
         f_map = mapping(f, in_axes=in_axes, out_axes=out_axes, **kwargs)
 

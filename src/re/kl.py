@@ -460,9 +460,9 @@ def MetricKL(
         elif sample_mapping == 'lax.map' or sample_mapping == 'lax':
             sample_mapping = lambda f: lambda xs: lax.map(f, xs)
         else:
-            raise ValueError('{} is not an accepted key to a sample mapping function. \
-                              If the desired mapping function is not yet implemented, consider passing it directly \
-                              instead of the key.'.format(sample_mapping))
+            raise ValueError(f'{sample_mapping} is not an accepted key to a sample mapping function. '
+                             f'If the desired mapping function is not yet implemented, consider passing it directly '
+                             f'instead of the key.')
 
     samples_stack = sample_mapping(lambda k: draw(key=k))(subkeys)
     #samples_stack = lax.map(lambda k: draw(key=k), subkeys)
