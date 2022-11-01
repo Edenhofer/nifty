@@ -21,20 +21,20 @@ jax.config.update("jax_enable_x64", True)
 # %%
 def lanczos_logdet(
     mat,
-    probe,
+    v,
     order: int,
-    *,
-    shape0=None,
 ):
-    """Computes a stochastic estimate of the log-determinate of a matrix using
-    the stochastic Lanczos quadrature algorithm.
+    """Computes a stochastic estimate of the log-determinate of the Lanczos
+    decomposed matrix. This is not the same as applying the stochastic Lanczos
+    quadrature algorithm as it estimates the log-determinate for the
+    decomposition only.
     """
-    shape0 = shape0 if shape0 is not None else mat.shape[0]
     mat = mat.__matmul__ if not hasattr(mat, "__call__") else mat
 
-    tridiag, vecs = jft.lanczos.lanczos_tridiag(mat, probe, order=order)
-    v = jnp.linalg.eigvalsh(tridiag)
-    return jnp.log(v).sum(), vecs
+    tridiag, vecs = jft.lanczos.lanczos_tridiag(mat, v, order=order)
+    eig_vals = jnp.linalg.eigvalsh(tridiag)
+    return jnp.log(eig_vals).sum(), vecs
+
 
 def _metric_sample(
     hamiltonian: jft.StandardHamiltonian,
@@ -49,23 +49,13 @@ def _metric_sample(
     nll_smpl = jft.kl.sample_likelihood(
         hamiltonian.likelihood, primals, key=subkey_nll
     )
-    #nll_smpl = jft.random_like(key=subkey_nll, primals=primals)
     prr_inv_metric_smpl = jft.random_like(key=subkey_prr, primals=primals)
     # One may transform any metric sample to a sample of the inverse
     # metric by simply applying the inverse metric to it
     prr_smpl = prr_inv_metric_smpl
-    # Note, we can sample antithetically by swapping the global sign of
-    # the metric sample below (which corresponds to mirroring the final
-    # sample) and additionally by swapping the relative sign between
-    # the prior and the likelihood sample. The first technique is
-    # computationally cheap and empirically known to improve stability.
-    # The latter technique requires an additional inversion and its
-    # impact on stability is still unknown.
-    # TODO: investigate the impact of sampling the prior and likelihood
-    # antithetically.
     met_smpl = nll_smpl + prr_smpl
-    # Project out met sample explicitly
     return met_smpl, prr_smpl
+
 
 def geomap(
     hamiltonian: jft.StandardHamiltonian,
@@ -85,8 +75,9 @@ def geomap(
             )
             return o
 
-        probe, smpl = (flatten_util.ravel_pytree(smpl)[0] for smpl in 
-                       _metric_sample(hamiltonian, pos, key))
+        probe, smpl = _metric_sample(hamiltonian, pos, key)
+        probe = flatten_util.ravel_pytree(probe)[0]
+        smpl = flatten_util.ravel_pytree(smpl)[0]
 
         logdet, vecs = lanczos_logdet(mat, probe, order, shape0=p.size)
 
