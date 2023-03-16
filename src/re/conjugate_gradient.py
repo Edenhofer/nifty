@@ -649,6 +649,9 @@ def _cg_steihaug_subproblem(
                 "maxiter": maxiter
             }
             call(pp, printable_state, result_shape=None)
+        # BUG: This call is stupid and completely unncessary. However, JAX
+        # (or XLA) does not terminate without it.
+        call(lambda *x: None, {}, result_shape=None)
 
         return iterp
 
