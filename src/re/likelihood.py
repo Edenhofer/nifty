@@ -30,7 +30,7 @@ class Likelihood():
     def __init__(
         self,
         energy: Callable[..., Union[jnp.ndarray, float]],
-        residual: Optional[Callable[[Q], P]] = None,
+        normalized_residual: Optional[Callable[[Q], P]] = None,
         transformation: Optional[Callable[[Q], P]] = None,
         left_sqrt_metric: Optional[Callable[[Q, P], Q]] = None,
         metric: Optional[Callable[[Q, Q], Q]] = None,
@@ -44,8 +44,9 @@ class Likelihood():
             Function evaluating the negative log-likelihood.
         transformation : callable, optional
             Function evaluating the geometric transformation of the likelihood.
-        residual : callable, optional
-            Function evaluating the data residual of the likelihood.
+        normalized_residual : callable, optional
+            Function evaluating the data residual normalized by the stadard
+            deviation of the likelihood.
         left_sqrt_metric : callable, optional
             Function applying the left-square-root of the metric.
         metric : callable, optional
@@ -57,7 +58,7 @@ class Likelihood():
         # called instead of always partially
         self._hamiltonian = energy
         self._transformation = transformation
-        self._residual = residual
+        self._normalized_residual = normalized_residual
         self._left_sqrt_metric = left_sqrt_metric
         self._metric = metric
 
@@ -96,8 +97,8 @@ class Likelihood():
         """
         return self._hamiltonian(primals, **primals_kw)
 
-    def residual(self, primals, **primals_kw):
-        """Applies the residual to `primals`.
+    def normalized_residual(self, primals, **primals_kw):
+        """Applies the normalized_residual to `primals`.
 
         Parameters
         ----------
@@ -108,14 +109,14 @@ class Likelihood():
 
         Returns
         -------
-        residual : tree-like structure
+        normalized_residual : tree-like structure
             Structure of the same type as lsm_tangents_shape for which the 
-            residual is computed.
+            normalized_residual is computed.
         """
-        if self._residual is None:
-            nie = "`residual` is not implemented"
+        if self._normalized_residual is None:
+            nie = "`normalized_residual` is not implemented"
             raise NotImplementedError(nie)
-        return self._residual(primals, **primals_kw)
+        return self._normalized_residual(primals, **primals_kw)
 
     def metric(self, primals, tangents, **primals_kw):
         """Applies the metric at `primals` to `tangents`.
@@ -174,26 +175,6 @@ class Likelihood():
             return res[0]
         return self._left_sqrt_metric(primals, tangents, **primals_kw)
 
-    def normalized_residual(self, primals, **primals_kw):
-        """Applies the right-square-root of the metric at `primals` to the
-        residual at `primals`.
-
-        Parameters
-        ----------
-        primals : tree-like structure
-            Position at which to evaluate the metric.
-        **primals_kw : Any
-           Additional arguments passed on to the LSM.
-
-        Returns
-        -------
-        normalized_residual : tree-like structure
-            Tree-like structure of the same type as lsm_tangents_shape where the
-            left-square-root of the metric has been applied to the residual.
-        """
-        lsm = Partial(self.left_sqrt_metric, primals, **primals_kw)
-        return _functional_conj(lsm)(self.residual(primals, **primals_kw))
-
     def transformation(self, primals, **primals_kw):
         """Applies the coordinate transformation that maps into a coordinate
         system in which the metric of the likelihood is the Euclidean metric.
@@ -230,7 +211,7 @@ class Likelihood():
         return self.left_sqrt_metric_tangents_shape
 
     def new(
-        self, energy: Callable, residual: Optional[Callable],
+        self, energy: Callable, normalized_residual: Optional[Callable],
         transformation: Optional[Callable], 
         left_sqrt_metric: Optional[Callable], metric: Optional[Callable]
     ):
@@ -240,7 +221,7 @@ class Likelihood():
         ----------
         energy : callable
             Function evaluating the negative log-likelihood.
-        residual : callable, optional
+        normalized_residual : callable, optional
             Function evaluating the data residual of the likelihood
         transformation : callable, optional
             Function evaluating the geometric transformation of the
@@ -252,7 +233,7 @@ class Likelihood():
         """
         return Likelihood(
             energy,
-            residual=residual,
+            normalized_residual=normalized_residual,
             transformation=transformation,
             left_sqrt_metric=left_sqrt_metric,
             metric=metric,
@@ -265,7 +246,8 @@ class Likelihood():
         """
         from jax import jit
 
-        j_r = jit(self.residual) if self._residual is not None else None
+        j_r = (jit(self.normalized_residual) if self._normalized_residual is 
+               not None else None)
 
         if self._transformation is not None:
             j_trafo = jit(self.transformation, **kwargs)
@@ -283,7 +265,7 @@ class Likelihood():
 
         return self.new(
             jit(self._hamiltonian, **kwargs),
-            residual=j_r,
+            normalized_residual=j_r,
             transformation=j_trafo,
             left_sqrt_metric=j_lsm,
             metric=j_m
@@ -330,9 +312,9 @@ class Likelihood():
             kw_l, kw_r = split_kwargs(**primals_kw)
             return self.energy(f(primals, **kw_r), **kw_l)
 
-        def residual_at_f(primals, **primals_kw):
+        def normalized_residual_at_f(primals, **primals_kw):
             kw_l, kw_r = split_kwargs(**primals_kw)
-            return self.residual(f(primals, **kw_r), **kw_l)
+            return self.normalized_residual(f(primals, **kw_r), **kw_l)
 
         def transformation_at_f(primals, **primals_kw):
             kw_l, kw_r = split_kwargs(**primals_kw)
@@ -357,7 +339,7 @@ class Likelihood():
 
         return self.new(
             energy_at_f,
-            residual=residual_at_f,
+            normalized_residual=normalized_residual_at_f,
             transformation=transformation_at_f,
             left_sqrt_metric=left_sqrt_metric_at_f,
             metric=metric_at_f
@@ -382,12 +364,12 @@ class Likelihood():
         def joined_hamiltonian(p, **pkw):
             return self.energy(p, **pkw) + other.energy(p, **pkw)
 
-        def joined_residual(p, **pkw):
+        def joined_normalized_residual(p, **pkw):
             from warnings import warn
             # FIXME
             warn("adding residuals is untested", UserWarning)
-            lres = self.residual(p, **pkw)
-            rres = other.residual(p, **pkw)
+            lres = self.normalized_residual(p, **pkw)
+            rres = other.normalized_residual(p, **pkw)
             lvec, rvec = isinstance(lres, Vector), isinstance(rres, Vector)
             res = {
                 lkey: lres.tree if lvec else lres, 
@@ -416,13 +398,12 @@ class Likelihood():
             return res
 
         def joined_left_sqrt_metric(p, t, **pkw):
-            return self.left_sqrt_metric(
-                p, t["lh_left"], **pkw
-            ) + other.left_sqrt_metric(p, t["lh_right"], **pkw)
+            return (self.left_sqrt_metric(p, t[lkey], **pkw) + 
+                    other.left_sqrt_metric(p, t[rkey], **pkw))
 
         return Likelihood(
             joined_hamiltonian,
-            residual=joined_residual,
+            normalized_residual=joined_normalized_residual,
             transformation=joined_transformation,
             left_sqrt_metric=joined_left_sqrt_metric,
             metric=joined_metric,
