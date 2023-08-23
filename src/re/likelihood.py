@@ -30,9 +30,9 @@ class Likelihood():
     def __init__(
         self,
         energy: Callable[..., Union[jnp.ndarray, float]],
-        transformation: Optional[Callable[[Q], P]] = None,
         residual: Optional[Callable[[Q], P]] = None,
-        left_sqrt_metric: Optional[Callable[[Q, Q], P]] = None,
+        transformation: Optional[Callable[[Q], P]] = None,
+        left_sqrt_metric: Optional[Callable[[Q, P], Q]] = None,
         metric: Optional[Callable[[Q, Q], Q]] = None,
         lsm_tangents_shape=None
     ):
@@ -53,8 +53,8 @@ class Likelihood():
         lsm_tangents_shape : tree-like structure of ShapeWithDtype, optional
             Structure of the data space.
         """
-        # TODO: track forward model and build lsm, metric only when called
-        # instead of always partially
+        # TODO: track forward model and build lsm, metric, residual only when 
+        # called instead of always partially
         self._hamiltonian = energy
         self._transformation = transformation
         self._residual = residual
@@ -96,6 +96,27 @@ class Likelihood():
         """
         return self._hamiltonian(primals, **primals_kw)
 
+    def residual(self, primals, **primals_kw):
+        """Applies the residual to `primals`.
+
+        Parameters
+        ----------
+        primals : tree-like structure
+            Position at which to evaluate the energy.
+        **primals_kw : Any
+           Additional arguments passed on to the energy.
+
+        Returns
+        -------
+        residual : tree-like structure
+            Structure of the same type as lsm_tangents_shape for which the 
+            residual is computed.
+        """
+        if self._residual is None:
+            nie = "`residual` is not implemented"
+            raise NotImplementedError(nie)
+        return self._residual(primals, **primals_kw)
+
     def metric(self, primals, tangents, **primals_kw):
         """Applies the metric at `primals` to `tangents`.
 
@@ -135,15 +156,16 @@ class Likelihood():
         primals : tree-like structure
             Position at which to evaluate the metric.
         tangents : tree-like structure
-            Instance to which to apply the metric.
+            Instance to which to apply the metric. 
+            Must be of shape lsm_tangents_shape.
         **primals_kw : Any
            Additional arguments passed on to the LSM.
 
         Returns
         -------
         metric_sample : tree-like structure
-            Tree-like structure of the same type as primals to which the
-            left-square-root of the metric has been applied to.
+            Tree-like structure of the same type as primals to which 
+            the left-square-root of the metric has been applied to.
         """
         if self._left_sqrt_metric is None:
             _, bwd = vjp(Partial(self.transformation, **primals_kw), primals)
@@ -151,6 +173,26 @@ class Likelihood():
             res = bwd(tangents)
             return res[0]
         return self._left_sqrt_metric(primals, tangents, **primals_kw)
+
+    def normalized_residual(self, primals, **primals_kw):
+        """Applies the right-square-root of the metric at `primals` to the
+        residual at `primals`.
+
+        Parameters
+        ----------
+        primals : tree-like structure
+            Position at which to evaluate the metric.
+        **primals_kw : Any
+           Additional arguments passed on to the LSM.
+
+        Returns
+        -------
+        normalized_residual : tree-like structure
+            Tree-like structure of the same type as lsm_tangents_shape where the
+            left-square-root of the metric has been applied to the residual.
+        """
+        lsm = Partial(self.left_sqrt_metric, primals, **primals_kw)
+        return _functional_conj(lsm)(self.residual(primals, **primals_kw))
 
     def transformation(self, primals, **primals_kw):
         """Applies the coordinate transformation that maps into a coordinate
@@ -166,8 +208,8 @@ class Likelihood():
         Returns
         -------
         transformed_sample : tree-like structure
-            Structure of the same type as primals to which the geometric
-            transformation has been applied to.
+            Structure of the same type as lsm_tangents_shape to which the 
+            geometric transformation has been applied to.
         """
         if self._transformation is None:
             nie = "`transformation` is not implemented"
@@ -188,7 +230,8 @@ class Likelihood():
         return self.left_sqrt_metric_tangents_shape
 
     def new(
-        self, energy: Callable, transformation: Optional[Callable],
+        self, energy: Callable, residual: Optional[Callable],
+        transformation: Optional[Callable], 
         left_sqrt_metric: Optional[Callable], metric: Optional[Callable]
     ):
         """Instantiates a new likelihood with the same `lsm_tangents_shape`.
@@ -197,6 +240,8 @@ class Likelihood():
         ----------
         energy : callable
             Function evaluating the negative log-likelihood.
+        residual : callable, optional
+            Function evaluating the data residual of the likelihood
         transformation : callable, optional
             Function evaluating the geometric transformation of the
             log-likelihood.
@@ -207,6 +252,7 @@ class Likelihood():
         """
         return Likelihood(
             energy,
+            residual=residual,
             transformation=transformation,
             left_sqrt_metric=left_sqrt_metric,
             metric=metric,
@@ -218,6 +264,8 @@ class Likelihood():
         of metric and metric.
         """
         from jax import jit
+
+        j_r = jit(self.residual) if self._residual is not None else None
 
         if self._transformation is not None:
             j_trafo = jit(self.transformation, **kwargs)
@@ -235,6 +283,7 @@ class Likelihood():
 
         return self.new(
             jit(self._hamiltonian, **kwargs),
+            residual=j_r,
             transformation=j_trafo,
             left_sqrt_metric=j_lsm,
             metric=j_m
@@ -281,6 +330,10 @@ class Likelihood():
             kw_l, kw_r = split_kwargs(**primals_kw)
             return self.energy(f(primals, **kw_r), **kw_l)
 
+        def residual_at_f(primals, **primals_kw):
+            kw_l, kw_r = split_kwargs(**primals_kw)
+            return self.residual(f(primals, **kw_r), **kw_l)
+
         def transformation_at_f(primals, **primals_kw):
             kw_l, kw_r = split_kwargs(**primals_kw)
             return self.transformation(f(primals, **kw_r), **kw_l)
@@ -304,12 +357,15 @@ class Likelihood():
 
         return self.new(
             energy_at_f,
+            residual=residual_at_f,
             transformation=transformation_at_f,
             left_sqrt_metric=left_sqrt_metric_at_f,
             metric=metric_at_f
         )
 
     def __add__(self, other):
+        # TODO
+        raise NotImplementedError
         if not isinstance(other, Likelihood):
             te = (
                 "object which to add to this instance is of invalid type"
