@@ -95,11 +95,11 @@ def Gaussian(
         noise_cov_inv, noise_std_inv, data
     )
 
-    def residual(primals):
-        return data - primals
+    def normalized_residual(primals):
+        return noise_std_inv(data - primals)
 
     def hamiltonian(primals):
-        p_res = residual(primals)
+        p_res = data - primals
         return 0.5 * vdot(p_res, noise_cov_inv(p_res)).real
 
     def metric(primals, tangents):
@@ -115,7 +115,7 @@ def Gaussian(
 
     return Likelihood(
         hamiltonian,
-        residual=residual,
+        normalized_residual=normalized_residual,
         transformation=transformation,
         left_sqrt_metric=left_sqrt_metric,
         metric=metric,
@@ -153,18 +153,11 @@ def StudentT(
         noise_cov_inv, noise_std_inv, data
     )
 
-    def residual(primals):
-        """
-        primals : mean
-        """
-        return data - primals
-
-
     def hamiltonian(primals):
         """
         primals : mean
         """
-        return standard_t(noise_std_inv(residual(primals)), dof)
+        return standard_t(noise_std_inv(data - primals), dof)
 
     def metric(primals, tangents):
         """
@@ -178,6 +171,12 @@ def StudentT(
         """
         return noise_std_inv(jnp.sqrt((dof + 1) / (dof + 3)) * tangents)
 
+    def normalized_residual(primals):
+        """
+        primals : mean
+        """
+        return left_sqrt_metric(None, data - primals)
+
     def transformation(primals):
         """
         primals : mean
@@ -188,7 +187,7 @@ def StudentT(
 
     return Likelihood(
         hamiltonian,
-        residual=residual,
+        normalized_residual=normalized_residual,
         transformation=transformation,
         left_sqrt_metric=left_sqrt_metric,
         metric=metric,
@@ -223,9 +222,6 @@ def Poissonian(data, sampling_dtype=float):
     if jnp.any(data < 0):
         raise ValueError("`data` may not be negative")
 
-    def residual(primals):
-        return data - primals
-
     def hamiltonian(primals):
         return jnp.sum(primals) - vdot(jnp.log(primals), data)
 
@@ -235,6 +231,9 @@ def Poissonian(data, sampling_dtype=float):
     def left_sqrt_metric(primals, tangents):
         return tangents / jnp.sqrt(primals)
 
+    def normalized_residual(primals):
+        return left_sqrt_metric(primals, data - primals)
+
     def transformation(primals):
         return jnp.sqrt(primals) * 2.
 
@@ -242,7 +241,7 @@ def Poissonian(data, sampling_dtype=float):
 
     return Likelihood(
         hamiltonian,
-        residual=residual,
+        normalized_residual=normalized_residual,
         transformation=transformation,
         left_sqrt_metric=left_sqrt_metric,
         metric=metric,
@@ -267,14 +266,14 @@ def VariableCovarianceGaussian(data, iscomplex=False):
 
     # TODO: make configurable whether `std_inv` or `std` is passed
 
-    def residual(primals):
-        return data - primals[0]
+    def normalized_residual(primals):
+        return (data - primals[0]) * primals[1]
 
     def hamiltonian(primals):
         """
         primals : pair of (mean, std_inv)
         """
-        res = residual(primals) * primals[1]
+        res = (data - primals[0]) * primals[1]
         fct = 2 if iscomplex else 1
         return 0.5 * vdot(res, res).real - fct * jnp.sum(jnp.log(primals[1]))
 
@@ -319,7 +318,7 @@ def VariableCovarianceGaussian(data, iscomplex=False):
 
     return Likelihood(
         hamiltonian,
-        residual=residual,
+        normalized_residual=normalized_residual,
         transformation=transformation,
         left_sqrt_metric=left_sqrt_metric,
         metric=metric,
@@ -342,15 +341,12 @@ def VariableCovarianceStudentT(data, dof):
     The likelihood acts on a tuple of (mean, std).
     """
 
-    def residual(primals):
-        return data - primals[0]
-
     # TODO: make configurable whether `std_inv` or `std` is passed
     def hamiltonian(primals):
         """
         primals : pair of (mean, std)
         """
-        t = standard_t(residual(primals) / primals[1], dof)
+        t = standard_t((data - primals[0]) / primals[1], dof)
         t += jnp.sum(jnp.log(primals[1]))
         return t
 
@@ -362,6 +358,9 @@ def VariableCovarianceStudentT(data, dof):
             tangent[0] * (dof + 1) / (dof + 3) / primals[1]**2,
             tangent[1] * 2 * dof / (dof + 3) / primals[1]**2
         )
+
+    def normalized_residual(primals):
+        return (data - primals[0]) / primals[1] * ((dof + 1) / (dof + 3))**0.5
 
     def left_sqrt_metric(primals, tangents):
         """
@@ -378,7 +377,7 @@ def VariableCovarianceStudentT(data, dof):
 
     return Likelihood(
         hamiltonian,
-        residual=residual,
+        normalized_residual=normalized_residual,
         left_sqrt_metric=left_sqrt_metric,
         metric=metric,
         lsm_tangents_shape=lsm_tangents_shape
@@ -421,6 +420,7 @@ def Categorical(data, axis=-1, sampling_dtype=float):
 
     return Likelihood(
         hamiltonian,
+        normalized_residual = None,
         left_sqrt_metric=left_sqrt_metric,
         metric=metric,
         lsm_tangents_shape=lsm_tangents_shape
