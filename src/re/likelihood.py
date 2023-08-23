@@ -3,7 +3,7 @@
 
 from typing import Any, Callable, Optional, TypeVar, Union
 
-from jax import linear_transpose, linearize
+from jax import eval_shape, linear_transpose, linearize
 from jax import numpy as jnp
 from jax import vjp
 from jax.tree_util import Partial, tree_leaves
@@ -12,6 +12,7 @@ from .misc import doc_from, is1d, isiterable, split
 from .tree_math import ShapeWithDtype, vdot, conj
 
 Q = TypeVar("Q")
+P = TypeVar("P")
 
 
 def _functional_conj(func):
@@ -29,9 +30,10 @@ class Likelihood():
     def __init__(
         self,
         energy: Callable[..., Union[jnp.ndarray, float]],
-        transformation: Optional[Callable[[Q], Any]] = None,
-        left_sqrt_metric: Optional[Callable[[Q, Q], Any]] = None,
-        metric: Optional[Callable[[Q, Q], Any]] = None,
+        transformation: Optional[Callable[[Q], P]] = None,
+        residual: Optional[Callable[[Q], P]] = None,
+        left_sqrt_metric: Optional[Callable[[Q, Q], P]] = None,
+        metric: Optional[Callable[[Q, Q], Q]] = None,
         lsm_tangents_shape=None
     ):
         """Instantiates a new likelihood.
@@ -42,6 +44,8 @@ class Likelihood():
             Function evaluating the negative log-likelihood.
         transformation : callable, optional
             Function evaluating the geometric transformation of the likelihood.
+        residual : callable, optional
+            Function evaluating the data residual of the likelihood.
         left_sqrt_metric : callable, optional
             Function applying the left-square-root of the metric.
         metric : callable, optional
@@ -53,6 +57,7 @@ class Likelihood():
         # instead of always partially
         self._hamiltonian = energy
         self._transformation = transformation
+        self._residual = residual
         self._left_sqrt_metric = left_sqrt_metric
         self._metric = metric
 
