@@ -9,7 +9,7 @@ from jax import vjp
 from jax.tree_util import Partial, tree_leaves
 
 from .misc import doc_from, is1d, isiterable, split
-from .tree_math import ShapeWithDtype, vdot, conj
+from .tree_math import ShapeWithDtype, vdot, conj, Vector
 
 Q = TypeVar("Q")
 P = TypeVar("P")
@@ -364,8 +364,6 @@ class Likelihood():
         )
 
     def __add__(self, other):
-        # TODO
-        raise NotImplementedError
         if not isinstance(other, Likelihood):
             te = (
                 "object which to add to this instance is of invalid type"
@@ -373,26 +371,49 @@ class Likelihood():
             )
             raise TypeError(te)
 
+        lkey = "lh_left"
+        rkey = "lh_right"
+
+        joined_tangents_shape = {
+            lkey: self._lsm_tan_shp,
+            rkey: other._lsm_tan_shp
+        }
+
         def joined_hamiltonian(p, **pkw):
             return self.energy(p, **pkw) + other.energy(p, **pkw)
+
+        def joined_residual(p, **pkw):
+            from warnings import warn
+            # FIXME
+            warn("adding residuals is untested", UserWarning)
+            lres = self.residual(p, **pkw)
+            rres = other.residual(p, **pkw)
+            lvec, rvec = isinstance(lres, Vector), isinstance(rres, Vector)
+            res = {
+                lkey: lres.tree if lvec else lres, 
+                rkey: rres.tree if rvec else rres
+            }
+            if lvec + rvec:
+                return Vector(res)
+            return res
 
         def joined_metric(p, t, **pkw):
             return self.metric(p, t, **pkw) + other.metric(p, t, **pkw)
 
-        joined_tangents_shape = {
-            "lh_left": self._lsm_tan_shp,
-            "lh_right": other._lsm_tan_shp
-        }
-
         def joined_transformation(p, **pkw):
             from warnings import warn
-
             # FIXME
             warn("adding transformations is untested", UserWarning)
-            return {
-                "lh_left": self.transformation(p, **pkw),
-                "lh_right": other.transformation(p, **pkw)
+            lres = self.transformation(p, **pkw)
+            rres = other.transformation(p, **pkw)
+            lvec, rvec = isinstance(lres, Vector), isinstance(rres, Vector)
+            res = {
+                lkey: lres.tree if lvec else lres, 
+                rkey: rres.tree if rvec else rres
             }
+            if lvec*rvec:
+                return Vector(res)
+            return res
 
         def joined_left_sqrt_metric(p, t, **pkw):
             return self.left_sqrt_metric(
@@ -401,6 +422,7 @@ class Likelihood():
 
         return Likelihood(
             joined_hamiltonian,
+            residual=joined_residual,
             transformation=joined_transformation,
             left_sqrt_metric=joined_left_sqrt_metric,
             metric=joined_metric,
