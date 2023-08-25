@@ -247,7 +247,7 @@ class OptimizeVI:
             None,
             samples.pos,
             method=self._minimizer,
-            options=self._mini_kwargs | options
+            options= {**self._mini_kwargs, **options}
         )
         return samples.at(opt_state.x), opt_state
 

@@ -9,7 +9,7 @@ from jax.tree_util import tree_map
 from .tree_math import ShapeWithDtype
 from .likelihood import Likelihood
 from .logger import logger
-from .tree_math import vdot
+from .tree_math import vdot, tree_reduce
 
 
 def standard_t(nwr, dof):
@@ -219,23 +219,25 @@ def Poissonian(data, sampling_dtype=float):
     dtp = result_type(data)
     if not jnp.issubdtype(dtp, jnp.integer):
         raise TypeError("`data` of invalid type")
-    if jnp.any(data < 0):
+    if any(value is False for value in tree_map(jnp.any, data).tree.values()):
         raise ValueError("`data` may not be negative")
 
     def hamiltonian(primals):
-        return jnp.sum(primals) - vdot(jnp.log(primals), data)
+        children_lklhd = tree_map(jnp.sum, primals) - vdot(tree_map(jnp.log, primals), data)
+        return tree_reduce(jnp.add, children_lklhd)
 
     def metric(primals, tangents):
         return tangents / primals
 
     def left_sqrt_metric(primals, tangents):
-        return tangents / jnp.sqrt(primals)
+        return tangents / tree_map(jnp.sqrt, primals)
 
     def normalized_residual(primals):
         return left_sqrt_metric(primals, data - primals)
 
     def transformation(primals):
-        return jnp.sqrt(primals) * 2.
+        func = lambda x: jnp.sqrt(x) * 2.
+        return tree_map(func, primals)
 
     lsm_tangents_shape = tree_map(_shape_w_fixed_dtype(sampling_dtype), data)
 
